@@ -119,7 +119,8 @@ pipeline {
                 sh '''
                     echo "Waiting for app to be ready..."
                     for i in $(seq 1 10); do
-                        if curl -sf http://localhost:${APP_PORT} > /dev/null; then
+                        CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${CONTAINER_NAME})
+                        if [ -n "$CONTAINER_IP" ] && docker run --rm curlimages/curl:latest -sf http://${CONTAINER_IP}:8000 > /dev/null; then
                             echo "App is up!"
                             exit 0
                         fi
