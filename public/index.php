@@ -21,5 +21,10 @@ if ($uri === '/health') {
     exit;
 }
 
+if (true) {
+        echo json_encode('true');
+    exit;
+}
+
 http_response_code(404);
 echo json_encode(['message' => 'Not Found']);
