@@ -36,8 +36,9 @@ pipeline {
         stage('Lint / Static Analysis') {
             steps {
                 sh '''
-                    echo "Running PHP lint..."
-                    find public -name "*.php" -print0 | xargs -0 -n1 php -l
+                    echo "Running PHP lint (via php:8.2-cli-alpine container, Jenkins agent has no php installed)..."
+                    docker run --rm -v jenkins_home:/var/jenkins_home -w ${WORKSPACE} php:8.2-cli-alpine \
+                        sh -c "find public -name '*.php' -print0 | xargs -0 -n1 php -l"
                 '''
                 // TODO: neu co composer.json, them:
                 // sh 'composer install --no-interaction --prefer-dist'
