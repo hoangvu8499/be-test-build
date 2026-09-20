@@ -11,8 +11,9 @@ pipeline {
         DOCKERHUB_CREDENTIALS = credentials('jenkin-docker-hub')     // Jenkins credential ID (username + password/token)
         DOCKERHUB_REPO        = 'timovuton8499/be-php-test-build'
         IMAGE_TAG             = "${env.BUILD_NUMBER}"
-        CONTAINER_NAME        = 'be-php'
-        APP_PORT              = '8000'
+        // main va dev deploy song song nen can tach container/port rieng, tranh dam port
+        CONTAINER_NAME        = "be-php-${env.BRANCH_NAME ?: 'local'}"
+        APP_PORT              = "${env.BRANCH_NAME == 'main' ? '8000' : '8001'}"
     }
 
     stages {
@@ -36,8 +37,9 @@ pipeline {
         stage('Lint / Static Analysis') {
             steps {
                 sh '''
-                    echo "Running PHP lint..."
-                    find public -name "*.php" -print0 | xargs -0 -n1 php -l
+                    echo "Running PHP lint (via php:8.2-cli-alpine container, Jenkins agent has no php installed)..."
+                    docker run --rm -v jenkins_home:/var/jenkins_home -w ${WORKSPACE} php:8.2-cli-alpine \
+                        sh -c "find public -name '*.php' -print0 | xargs -0 -n1 php -l"
                 '''
                 // TODO: neu co composer.json, them:
                 // sh 'composer install --no-interaction --prefer-dist'
@@ -78,7 +80,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
-                    docker build -t ${DOCKERHUB_REPO}:${IMAGE_TAG} -t ${DOCKERHUB_REPO}:latest .
+                    docker build -t ${DOCKERHUB_REPO}:${IMAGE_TAG} -t ${DOCKERHUB_REPO}:${BRANCH_NAME} .
                 '''
             }
         }
@@ -93,17 +95,24 @@ pipeline {
         }
 
         stage('Push to Docker Hub') {
+            // Chi push khi code that su nam tren main/dev, khong push cho build kiem tra PR
+            when {
+                anyOf { branch 'main'; branch 'dev' }
+            }
             steps {
                 sh '''
                     echo "${DOCKERHUB_CREDENTIALS_PSW}" | docker login -u "${DOCKERHUB_CREDENTIALS_USR}" --password-stdin
                     docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
-                    docker push ${DOCKERHUB_REPO}:latest
+                    docker push ${DOCKERHUB_REPO}:${BRANCH_NAME}
                     docker logout
                 '''
             }
         }
 
         stage('Deploy') {
+            when {
+                anyOf { branch 'main'; branch 'dev' }
+            }
             steps {
                 sh '''
                     echo "Deploying container locally..."
@@ -114,11 +123,15 @@ pipeline {
         }
 
         stage('Health Check') {
+            when {
+                anyOf { branch 'main'; branch 'dev' }
+            }
             steps {
                 sh '''
                     echo "Waiting for app to be ready..."
                     for i in $(seq 1 10); do
-                        if curl -sf http://localhost:${APP_PORT} > /dev/null; then
+                        CONTAINER_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${CONTAINER_NAME})
+                        if [ -n "$CONTAINER_IP" ] && docker run --rm curlimages/curl:latest -sf http://${CONTAINER_IP}:8000/health > /dev/null; then
                             echo "App is up!"
                             exit 0
                         fi
